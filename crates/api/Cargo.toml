@@ -1,0 +1,19 @@
+[package]
+name = "kw-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+kw-engine = { path = "../engine" }
+kw-storage = { path = "../storage" }
+kw-tracer = { path = "../tracer", features = ["mock"] }
+kw-types = { path = "../types" }
+serde.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tower-http = { version = "0.5", features = ["cors"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

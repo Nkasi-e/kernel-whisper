@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KernelWhisper Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <h1>KernelWhisper</h1>
+        <p class="muted">CPU-GPU inefficiency observability</p>
+        <div class="status-panel">
+          <div class="status-line">
+            <span>API</span>
+            <span id="api-status" class="pill">connecting</span>
+          </div>
+          <div class="status-line">
+            <span>Health</span>
+            <span id="health-status" class="pill">unknown</span>
+          </div>
+          <div class="status-line">
+            <span>Last Refresh</span>
+            <span id="last-refresh">-</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <h2>Live Insight Feed</h2>
+            <p class="muted">Real-time signal from the KernelWhisper pipeline</p>
+          </div>
+          <div class="controls">
+            <label>
+              API
+              <input id="api-url" value="http://localhost:3000" />
+            </label>
+            <button id="refresh-btn">Refresh now</button>
+          </div>
+        </header>
+
+        <section class="metrics-grid">
+          <article class="metric-card">
+            <h3>Total Insights</h3>
+            <p id="metric-total" class="metric-value">0</p>
+          </article>
+          <article class="metric-card">
+            <h3>Average Confidence</h3>
+            <p id="metric-confidence" class="metric-value">0.00</p>
+          </article>
+          <article class="metric-card">
+            <h3>High Risk Signals</h3>
+            <p id="metric-high-risk" class="metric-value">0</p>
+          </article>
+          <article class="metric-card">
+            <h3>Dominant Issue</h3>
+            <p id="metric-top-issue" class="metric-value">none</p>
+          </article>
+        </section>
+
+        <section class="split-grid">
+          <article>
+            <h3>Latest Insight</h3>
+            <div id="latest-insight" class="empty-card">No data yet.</div>
+          </article>
+          <article>
+            <h3>Recent Insights</h3>
+            <div id="insight-list" class="insight-list empty-card">No insights yet.</div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

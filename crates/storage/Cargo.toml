@@ -1,0 +1,17 @@
+[package]
+name = "kw-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["memory"]
+memory = []
+clickhouse = ["dep:clickhouse"]
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+kw-types = { path = "../types" }
+tokio.workspace = true
+clickhouse = { version = "0.12", optional = true }

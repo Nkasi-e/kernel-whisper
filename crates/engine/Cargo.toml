@@ -1,0 +1,9 @@
+[package]
+name = "kw-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+kw-types = { path = "../types" }
