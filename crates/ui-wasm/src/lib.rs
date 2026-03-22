@@ -10,6 +10,10 @@ pub struct InsightView {
     pub suggestions: Vec<String>,
     #[serde(default)]
     pub ts: Option<String>,
+    #[serde(default)]
+    pub data_summary: String,
+    #[serde(default)]
+    pub impact_summary: String,
 }
 
 #[wasm_bindgen]
@@ -20,6 +24,16 @@ pub fn render_insight_card(json_payload: &str) -> Result<String, JsValue> {
     let severity = severity_label(insight.confidence);
     let title = issue_label(&insight.issue);
     let ts = insight.ts.as_deref().unwrap_or("now");
+    let data_block = section_block(
+        "What the data shows",
+        insight.data_summary.trim(),
+        "insight-data",
+    );
+    let impact_block = section_block(
+        "Why it matters",
+        insight.impact_summary.trim(),
+        "insight-impact",
+    );
     let suggestions = if insight.suggestions.is_empty() {
         "<li>No suggestions provided</li>".to_string()
     } else {
@@ -40,6 +54,8 @@ pub fn render_insight_card(json_payload: &str) -> Result<String, JsValue> {
   </header>
   <h3 class="insight-title">{title}</h3>
   <p class="insight-message">{message}</p>
+  {data_block}
+  {impact_block}
   <div class="confidence-row">
     <span>Confidence</span>
     <span>{confidence:.2}</span>
@@ -48,13 +64,16 @@ pub fn render_insight_card(json_payload: &str) -> Result<String, JsValue> {
     <div class="confidence-fill" style="width: {confidence_pct:.1}%"></div>
   </div>
   <div class="meta-row">Observed: {ts}</div>
-  <ul class="suggestions-list">{suggestions}</ul>
+  <h4 class="insight-sub">What to do next</h4>
+  <ol class="suggestions-list">{suggestions}</ol>
 </article>
         "#,
         severity = severity,
         issue = escape_html(&insight.issue),
         title = escape_html(title),
         message = escape_html(&insight.message),
+        data_block = data_block,
+        impact_block = impact_block,
         confidence = insight.confidence,
         confidence_pct = (insight.confidence * 100.0).clamp(0.0, 100.0),
         ts = escape_html(ts),
@@ -62,6 +81,18 @@ pub fn render_insight_card(json_payload: &str) -> Result<String, JsValue> {
     );
 
     Ok(html.trim().to_string())
+}
+
+fn section_block(title: &str, body: &str, class: &str) -> String {
+    if body.is_empty() {
+        return String::new();
+    }
+    format!(
+        r#"<section class="insight-section {class}"><h4 class="insight-sub">{title}</h4><p class="insight-section-body">{body}</p></section>"#,
+        class = class,
+        title = escape_html(title),
+        body = escape_html(body),
+    )
 }
 
 #[wasm_bindgen]
@@ -81,24 +112,26 @@ pub fn summarize_insights(json_payload: &str) -> Result<String, JsValue> {
     let high_risk = insights.iter().filter(|i| i.confidence >= 0.7).count();
 
     let mut cpu_bottleneck = 0usize;
-    let mut scheduling = 0usize;
-    let mut blocking = 0usize;
+    let mut io_pressure = 0usize;
+    let mut gpu_underfed = 0usize;
     for i in &insights {
-        if i.issue.contains("cpu_bottleneck") {
-            cpu_bottleneck += 1;
-        } else if i.issue.contains("scheduling") {
-            scheduling += 1;
-        } else if i.issue.contains("blocking") {
-            blocking += 1;
+        match i.issue.as_str() {
+            "cpu_bottleneck" => cpu_bottleneck += 1,
+            "io_pressure" => io_pressure += 1,
+            "gpu_underfed" => gpu_underfed += 1,
+            _ => {}
         }
     }
 
-    let top_issue = if cpu_bottleneck >= scheduling && cpu_bottleneck >= blocking {
+    let top_issue = if cpu_bottleneck >= io_pressure && cpu_bottleneck >= gpu_underfed && cpu_bottleneck > 0
+    {
         "cpu_bottleneck"
-    } else if scheduling >= blocking {
-        "scheduling"
+    } else if io_pressure >= gpu_underfed && io_pressure > 0 {
+        "io_pressure"
+    } else if gpu_underfed > 0 {
+        "gpu_underfed"
     } else {
-        "blocking"
+        "mixed"
     };
 
     let health = if avg_confidence >= 0.75 {
@@ -133,6 +166,8 @@ fn severity_label(confidence: f32) -> &'static str {
 fn issue_label(issue: &str) -> &str {
     match issue {
         "cpu_bottleneck" => "CPU bottleneck is reducing accelerator throughput",
+        "io_pressure" => "I/O wait is stalling work (storage or NFS pressure)",
+        "gpu_underfed" => "GPU is idle too often — pipeline not feeding the accelerator",
         "scheduling_inefficiency" => "Task scheduling is delaying compute",
         "blocking_delay" => "Blocking operations are stalling pipeline",
         _ => "Resource inefficiency detected",

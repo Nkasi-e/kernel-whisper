@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use kw_types::{EventSource, TraceEvent};
+use kw_types::{EventSource, GpuUtilSource, TraceEvent};
 use std::pin::Pin;
 use std::process::Command;
 use tokio::time::{interval, Duration};
@@ -41,7 +41,8 @@ impl Tracer for MockTracer {
                     runnable_tasks: 4 + (seq % 8) as u32,
                     blocked_syscalls: 2 + (seq % 5) as u32,
                     gpu_usage_pct: gpu,
-                    source: EventSource::Host,
+                    source: EventSource::Mock,
+                    gpu_util_source: GpuUtilSource::Mock,
                 };
 
                 if tx.send(event).await.is_err() {
@@ -55,8 +56,23 @@ impl Tracer for MockTracer {
     }
 }
 
+fn env_truthy(key: &str) -> bool {
+    std::env::var(key)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes"))
+        .unwrap_or(false)
+}
+
 pub async fn start_from_env(sample_ms: u64) -> anyhow::Result<TraceStream> {
     let mode = std::env::var("KW_TRACER_MODE").unwrap_or_else(|_| "host".to_string());
+    let no_mock = env_truthy("KW_TRACER_NO_MOCK");
+
+    if mode.eq_ignore_ascii_case("mock") {
+        if no_mock {
+            anyhow::bail!("KW_TRACER_NO_MOCK is set: refusing KW_TRACER_MODE=mock");
+        }
+        return MockTracer { sample_ms }.start().await;
+    }
+
     if mode.eq_ignore_ascii_case("ebpf") {
         #[cfg(all(feature = "ebpf", target_os = "linux"))]
         {
@@ -69,6 +85,9 @@ pub async fn start_from_env(sample_ms: u64) -> anyhow::Result<TraceStream> {
             return match tracer.start().await {
                 Ok(stream) => Ok(stream),
                 Err(err) => {
+                    if no_mock {
+                        return Err(err.context("eBPF tracer failed and KW_TRACER_NO_MOCK=1"));
+                    }
                     tracing::warn!(
                         ?err,
                         "ebpf tracer startup failed, falling back to mock tracer"
@@ -79,13 +98,20 @@ pub async fn start_from_env(sample_ms: u64) -> anyhow::Result<TraceStream> {
         }
         #[cfg(not(all(feature = "ebpf", target_os = "linux")))]
         {
-            tracing::warn!("ebpf mode requested but unavailable on this target/build, using mock");
+            tracing::warn!("ebpf mode requested but unavailable on this target/build");
+            if no_mock {
+                anyhow::bail!("eBPF unavailable on this build/OS and KW_TRACER_NO_MOCK=1");
+            }
         }
     }
+
     if mode.eq_ignore_ascii_case("host") {
         return match (HostSignalTracer { sample_ms }).start().await {
             Ok(stream) => Ok(stream),
             Err(err) => {
+                if no_mock {
+                    return Err(err.context("host tracer failed and KW_TRACER_NO_MOCK=1"));
+                }
                 tracing::warn!(
                     ?err,
                     "host signal tracer startup failed, falling back to mock tracer"
@@ -95,6 +121,13 @@ pub async fn start_from_env(sample_ms: u64) -> anyhow::Result<TraceStream> {
         };
     }
 
+    if no_mock {
+        anyhow::bail!(
+            "unsupported KW_TRACER_MODE={mode:?} with KW_TRACER_NO_MOCK=1 (use host, ebpf, or mock)"
+        );
+    }
+
+    tracing::warn!(%mode, "unknown KW_TRACER_MODE, using mock tracer");
     MockTracer { sample_ms }.start().await
 }
 
@@ -120,8 +153,13 @@ impl Tracer for HostSignalTracer {
                 };
 
                 let cpu_usage_pct = sample.cpu_usage_pct;
-                // Keep GPU simulated, but tie it to real CPU pressure.
-                let gpu_usage_pct = (85.0 - cpu_usage_pct * 0.7).clamp(8.0, 90.0);
+                let (gpu_usage_pct, gpu_util_source) = match try_nvidia_gpu_util() {
+                    Some(v) => (v.clamp(0.0, 100.0), GpuUtilSource::NvidiaSmi),
+                    None => (
+                        (85.0 - cpu_usage_pct * 0.7).clamp(8.0, 90.0),
+                        GpuUtilSource::EstimatedFromCpu,
+                    ),
+                };
 
                 let event = TraceEvent {
                     id: Uuid::new_v4(),
@@ -131,6 +169,7 @@ impl Tracer for HostSignalTracer {
                     blocked_syscalls: sample.blocked_tasks,
                     gpu_usage_pct,
                     source: EventSource::Host,
+                    gpu_util_source,
                 };
 
                 if tx.send(event).await.is_err() {
@@ -196,6 +235,22 @@ fn sample_host_signals() -> anyhow::Result<HostSample> {
     })
 }
 
+/// Real GPU utilization from the first NVIDIA device when `nvidia-smi` is available.
+fn try_nvidia_gpu_util() -> Option<f32> {
+    let out = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    text.lines().next()?.trim().parse::<f32>().ok()
+}
+
 #[cfg(all(feature = "ebpf", target_os = "linux"))]
 pub mod ebpf {
     use super::{TraceStream, Tracer};
@@ -205,7 +260,7 @@ pub mod ebpf {
     use aya::programs::TracePoint;
     use aya::Ebpf;
     use chrono::Utc;
-    use kw_types::{EventSource, TraceEvent};
+    use kw_types::{EventSource, GpuUtilSource, TraceEvent};
     use tokio::time::{interval, Duration};
     use tokio_stream::wrappers::ReceiverStream;
     use uuid::Uuid;
@@ -259,6 +314,7 @@ pub mod ebpf {
                         blocked_syscalls: blocked_delta.min(u32::MAX as u64) as u32,
                         gpu_usage_pct,
                         source: EventSource::Ebpf,
+                        gpu_util_source: GpuUtilSource::EstimatedFromCpu,
                     };
 
                     if tx.send(event).await.is_err() {

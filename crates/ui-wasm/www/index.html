@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>KernelWhisper Dashboard</title>
+    <title>KernelWhisper — CPU &amp; GPU flame graphs</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <h1>KernelWhisper</h1>
-        <p class="muted">CPU-GPU inefficiency observability</p>
+        <p class="muted">CPU &amp; GPU profiler with flame graphs</p>
         <div class="status-panel">
           <div class="status-line">
             <span>API</span>
@@ -25,13 +25,19 @@
             <span id="last-refresh">-</span>
           </div>
         </div>
+
+        <section class="playbook-sidebar" aria-label="How to read this dashboard">
+          <h2 class="playbook-title">How to read this</h2>
+          <p id="playbook-intro" class="muted playbook-intro">Loading guide…</p>
+          <div id="playbook-panels" class="playbook-panels"></div>
+        </section>
       </aside>
 
       <main class="content">
         <header class="topbar">
           <div>
-            <h2>Live Insight Feed</h2>
-            <p class="muted">Real-time signal from the KernelWhisper pipeline</p>
+            <h2>Profiler &amp; insights</h2>
+            <p class="muted">Live CPU/GPU stack profiles and bottleneck detection</p>
           </div>
           <div class="controls">
             <label>
@@ -58,6 +64,23 @@
           <article class="metric-card">
             <h3>Dominant Issue</h3>
             <p id="metric-top-issue" class="metric-value">none</p>
+          </article>
+        </section>
+
+        <section class="flame-section">
+          <article class="flame-panel">
+            <header class="flame-header">
+              <h3>CPU flame graph</h3>
+              <p id="flame-cpu-meta" class="muted flame-meta">samples: —</p>
+            </header>
+            <div id="flame-cpu" class="flame-mount empty-card">Loading…</div>
+          </article>
+          <article class="flame-panel">
+            <header class="flame-header">
+              <h3>GPU flame graph</h3>
+              <p id="flame-gpu-meta" class="muted flame-meta">samples: —</p>
+            </header>
+            <div id="flame-gpu" class="flame-mount empty-card">Loading…</div>
           </article>
         </section>
 
