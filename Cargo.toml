@@ -3,6 +3,7 @@ members = [
   "crates/types",
   "crates/tracer",
   "crates/engine",
+  "crates/profiler",
   "crates/storage",
   "crates/api",
   "crates/cli",

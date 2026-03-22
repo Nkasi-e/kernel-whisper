@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 kw-engine = { path = "../engine" }
+kw-profiler = { path = "../profiler" }
 kw-storage = { path = "../storage" }
 kw-tracer = { path = "../tracer", features = ["mock"] }
 kw-types = { path = "../types" }
