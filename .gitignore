@@ -4,3 +4,4 @@ Cargo.lock
 
 # Local-only doc (not committed)
 DOC.local.md
+.local/
