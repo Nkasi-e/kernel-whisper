@@ -22,6 +22,8 @@ const ui = {
 
 const FLAME_WIDTH = 920;
 const FLAME_ROW = 18;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 12;
 
 function setStatus(el, label, tone) {
   el.textContent = label;
@@ -197,6 +199,102 @@ function renderFlameMount(profile, rowH) {
   )}</svg>`;
 }
 
+function clampViewBox(vb, boundsW, boundsH) {
+  if (vb.w >= boundsW) {
+    vb.x = 0;
+  } else {
+    const maxX = boundsW - vb.w;
+    vb.x = Math.min(Math.max(vb.x, 0), maxX);
+  }
+  if (vb.h >= boundsH) {
+    vb.y = 0;
+  } else {
+    const maxY = boundsH - vb.h;
+    vb.y = Math.min(Math.max(vb.y, 0), maxY);
+  }
+}
+
+function applyViewBox(svg, vb) {
+  svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+}
+
+function enableFlameInteractions(mount) {
+  const svg = mount.querySelector("svg.flame-svg");
+  if (!svg) return;
+  const base = svg.viewBox.baseVal;
+  const boundsW = base.width;
+  const boundsH = base.height;
+  let vb = { x: base.x, y: base.y, w: base.width, h: base.height };
+  let dragging = false;
+  let last = { x: 0, y: 0 };
+
+  mount.style.cursor = "grab";
+
+  const reset = () => {
+    vb = { x: 0, y: 0, w: boundsW, h: boundsH };
+    applyViewBox(svg, vb);
+  };
+
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+    const zoom = boundsW / vb.w;
+    const nextZoom = Math.min(
+      MAX_ZOOM,
+      Math.max(MIN_ZOOM, zoom * (e.deltaY < 0 ? 1.12 : 0.88)),
+    );
+    const nextW = boundsW / nextZoom;
+    const nextH = boundsH / nextZoom;
+    const anchorX = vb.x + vb.w * px;
+    const anchorY = vb.y + vb.h * py;
+    vb = {
+      x: anchorX - nextW * px,
+      y: anchorY - nextH * py,
+      w: nextW,
+      h: nextH,
+    };
+    clampViewBox(vb, boundsW, boundsH);
+    applyViewBox(svg, vb);
+  });
+
+  svg.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    last = { x: e.clientX, y: e.clientY };
+    mount.style.cursor = "grabbing";
+    svg.setPointerCapture(e.pointerId);
+  });
+
+  svg.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const dxPx = e.clientX - last.x;
+    const dyPx = e.clientY - last.y;
+    const dx = (dxPx / rect.width) * vb.w;
+    const dy = (dyPx / rect.height) * vb.h;
+    vb.x -= dx;
+    vb.y -= dy;
+    clampViewBox(vb, boundsW, boundsH);
+    applyViewBox(svg, vb);
+    last = { x: e.clientX, y: e.clientY };
+  });
+
+  const endDrag = (e) => {
+    dragging = false;
+    mount.style.cursor = "grab";
+    if (e && typeof e.pointerId === "number") {
+      svg.releasePointerCapture(e.pointerId);
+    }
+  };
+  svg.addEventListener("pointerup", endDrag);
+  svg.addEventListener("pointercancel", endDrag);
+  svg.addEventListener("pointerleave", endDrag);
+  svg.addEventListener("dblclick", reset);
+}
+
 function renderFlameProfiles(cpuProfile, gpuProfile) {
   const fmtTime = (iso) => {
     try {
@@ -209,6 +307,8 @@ function renderFlameProfiles(cpuProfile, gpuProfile) {
   ui.flameGpuMeta.textContent = `samples: ${gpuProfile.total_samples} · updated ${fmtTime(gpuProfile.updated_at)}`;
   ui.flameCpu.innerHTML = renderFlameMount(cpuProfile, FLAME_ROW);
   ui.flameGpu.innerHTML = renderFlameMount(gpuProfile, FLAME_ROW);
+  enableFlameInteractions(ui.flameCpu);
+  enableFlameInteractions(ui.flameGpu);
 }
 
 async function refresh() {

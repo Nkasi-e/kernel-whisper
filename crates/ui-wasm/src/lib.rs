@@ -100,47 +100,37 @@ pub fn summarize_insights(json_payload: &str) -> Result<String, JsValue> {
     let insights: Vec<InsightView> =
         serde_json::from_str(json_payload).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    let total = insights.len();
+    const SNAPSHOT_ISSUE: &str = "telemetry_snapshot";
+    // Treat telemetry snapshots as "info", not as hard detections for the summary.
+    let hard_insights: Vec<&InsightView> =
+        insights.iter().filter(|i| i.issue.as_str() != SNAPSHOT_ISSUE).collect();
+    let total = hard_insights.len();
     if total == 0 {
         return Ok(
-            r#"{"total":0,"avg_confidence":0.0,"high_risk":0,"top_issue":"none","health":"no_data"}"#
+            r#"{"total":0,"avg_confidence":0.0,"high_risk":0,"top_issue":"none","health":"stable"}"#
                 .to_string(),
         );
     }
 
-    let avg_confidence = insights.iter().map(|i| i.confidence).sum::<f32>() / total as f32;
-    let high_risk = insights.iter().filter(|i| i.confidence >= 0.7).count();
+    let avg_confidence = hard_insights.iter().map(|i| i.confidence).sum::<f32>() / total as f32;
+    let high_risk = hard_insights.iter().filter(|i| i.confidence >= 0.7).count();
 
-    let mut cpu_bottleneck = 0usize;
-    let mut io_pressure = 0usize;
-    let mut gpu_underfed = 0usize;
-    for i in &insights {
-        match i.issue.as_str() {
-            "cpu_bottleneck" => cpu_bottleneck += 1,
-            "io_pressure" => io_pressure += 1,
-            "gpu_underfed" => gpu_underfed += 1,
-            _ => {}
-        }
-    }
+    let cpu_bottleneck = hard_insights
+        .iter()
+        .filter(|i| i.issue.as_str() == "cpu_bottleneck")
+        .count();
+    let io_pressure = hard_insights
+        .iter()
+        .filter(|i| i.issue.as_str() == "io_pressure")
+        .count();
+    let gpu_underfed = hard_insights
+        .iter()
+        .filter(|i| i.issue.as_str() == "gpu_underfed")
+        .count();
 
-    let top_issue = if cpu_bottleneck >= io_pressure && cpu_bottleneck >= gpu_underfed && cpu_bottleneck > 0
-    {
-        "cpu_bottleneck"
-    } else if io_pressure >= gpu_underfed && io_pressure > 0 {
-        "io_pressure"
-    } else if gpu_underfed > 0 {
-        "gpu_underfed"
-    } else {
-        "mixed"
-    };
+    let top_issue = top_issue_from_counts(cpu_bottleneck, io_pressure, gpu_underfed);
 
-    let health = if avg_confidence >= 0.75 {
-        "degraded"
-    } else if avg_confidence >= 0.45 {
-        "warning"
-    } else {
-        "stable"
-    };
+    let health = health_from_avg_confidence(avg_confidence);
 
     let summary = serde_json::json!({
         "total": total,
@@ -151,6 +141,32 @@ pub fn summarize_insights(json_payload: &str) -> Result<String, JsValue> {
     });
 
     Ok(summary.to_string())
+}
+
+fn top_issue_from_counts(
+    cpu_bottleneck: usize,
+    io_pressure: usize,
+    gpu_underfed: usize,
+) -> &'static str {
+    if cpu_bottleneck > 0 && cpu_bottleneck >= io_pressure && cpu_bottleneck >= gpu_underfed {
+        "cpu_bottleneck"
+    } else if io_pressure > 0 && io_pressure >= gpu_underfed {
+        "io_pressure"
+    } else if gpu_underfed > 0 {
+        "gpu_underfed"
+    } else {
+        "mixed"
+    }
+}
+
+fn health_from_avg_confidence(avg_confidence: f32) -> &'static str {
+    if avg_confidence >= 0.75 {
+        "degraded"
+    } else if avg_confidence >= 0.45 {
+        "warning"
+    } else {
+        "stable"
+    }
 }
 
 fn severity_label(confidence: f32) -> &'static str {
@@ -168,6 +184,7 @@ fn issue_label(issue: &str) -> &str {
         "cpu_bottleneck" => "CPU bottleneck is reducing accelerator throughput",
         "io_pressure" => "I/O wait is stalling work (storage or NFS pressure)",
         "gpu_underfed" => "GPU is idle too often — pipeline not feeding the accelerator",
+        "telemetry_snapshot" => "Live telemetry snapshot (no strong bottleneck yet)",
         "scheduling_inefficiency" => "Task scheduling is delaying compute",
         "blocking_delay" => "Blocking operations are stalling pipeline",
         _ => "Resource inefficiency detected",

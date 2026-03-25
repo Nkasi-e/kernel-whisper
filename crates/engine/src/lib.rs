@@ -4,7 +4,13 @@ use std::collections::VecDeque;
 pub struct DetectionEngine {
     window: VecDeque<TraceEvent>,
     window_size: usize,
+    sample_count: u64,
+    last_hard_detection_sample: u64,
 }
+
+// Snapshot tuning (when no hard rule matches).
+const SNAPSHOT_INTERVAL_SAMPLES: u64 = 25;
+const SNAPSHOT_COOLDOWN_AFTER_HARD_SAMPLES: u64 = 30;
 
 struct WindowStats {
     len: usize,
@@ -20,15 +26,25 @@ impl DetectionEngine {
         Self {
             window: VecDeque::with_capacity(window_size),
             window_size,
+            sample_count: 0,
+            last_hard_detection_sample: 0,
         }
     }
 
     pub fn ingest(&mut self, event: TraceEvent) -> Option<Insight> {
         self.window.push_back(event);
+        self.sample_count = self.sample_count.saturating_add(1);
         while self.window.len() > self.window_size {
             self.window.pop_front();
         }
-        self.detect()
+        let res = self.detect();
+        if let Some(ref i) = res {
+            // Treat hard detections as the "anchor" for snapshot cooldown.
+            if i.issue != "telemetry_snapshot" {
+                self.last_hard_detection_sample = self.sample_count;
+            }
+        }
+        res
     }
 
     fn window_stats(&self) -> Option<WindowStats> {
@@ -84,7 +100,50 @@ impl DetectionEngine {
         if let Some(i) = self.detect_gpu_underfed(&s) {
             return Some(i);
         }
+        if self.sample_count % SNAPSHOT_INTERVAL_SAMPLES == 0
+            && (self.last_hard_detection_sample == 0
+                || self.sample_count.saturating_sub(self.last_hard_detection_sample)
+                    >= SNAPSHOT_COOLDOWN_AFTER_HARD_SAMPLES)
+        {
+            return Some(self.telemetry_snapshot(&s));
+        }
         None
+    }
+
+    fn telemetry_snapshot(&self, s: &WindowStats) -> Insight {
+        let cpu_norm = (s.avg_cpu / 100.0).clamp(0.0, 1.0);
+        let gpu_norm = (s.avg_gpu / 100.0).clamp(0.0, 1.0);
+        let blocked_norm = (s.avg_blocked / 20.0).clamp(0.0, 1.0);
+        let runnable_norm = (s.avg_runnable / 16.0).clamp(0.0, 1.0);
+        let imbalance = (cpu_norm - gpu_norm).abs();
+        let confidence = (0.25 + 0.35 * imbalance + 0.2 * blocked_norm + 0.2 * runnable_norm)
+            // Keep snapshots below the UI "warning" threshold so they look informational.
+            .clamp(0.15, 0.4);
+
+        let data_summary = format!(
+            "Rolling snapshot from {} samples: CPU {:.0}%, GPU {:.0}% ({}), runnable {:.0}, blocked {:.0}.",
+            s.len,
+            s.avg_cpu,
+            s.avg_gpu,
+            Self::gpu_source_label(s.gpu_source),
+            s.avg_runnable,
+            s.avg_blocked
+        );
+        let impact_summary = "No hard bottleneck rule fired in this window. Treat this as a live telemetry summary and continue watching for sustained divergence between CPU and GPU.";
+
+        Insight::new_detection(
+            "telemetry_snapshot",
+            confidence,
+            "Live telemetry snapshot (no strong bottleneck rule matched yet).",
+            vec![
+                "Keep collecting for another 30-60s to increase signal stability.".to_string(),
+                "If GPU stays low while CPU rises, focus on input pipeline and batching."
+                    .to_string(),
+                "If blocked tasks climb, inspect disk/NFS latency and queue depth.".to_string(),
+            ],
+            data_summary,
+            impact_summary,
+        )
     }
 
     fn detect_cpu_bottleneck(&self, s: &WindowStats) -> Option<Insight> {
