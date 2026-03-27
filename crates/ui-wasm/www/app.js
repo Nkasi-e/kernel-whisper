@@ -8,7 +8,11 @@ const ui = {
   refreshBtn: document.getElementById("refresh-btn"),
   latestInsight: document.getElementById("latest-insight"),
   insightList: document.getElementById("insight-list"),
-  metricTotal: document.getElementById("metric-total"),
+  // Prefer new ids; fall back to legacy "Total insights" cell so cached HTML still works.
+  metricActiveIssues:
+    document.getElementById("metric-active-issues") ??
+    document.getElementById("metric-total"),
+  metricSnapshots: document.getElementById("metric-snapshots"),
   metricConfidence: document.getElementById("metric-confidence"),
   metricHighRisk: document.getElementById("metric-high-risk"),
   metricTopIssue: document.getElementById("metric-top-issue"),
@@ -26,15 +30,27 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 12;
 
 function setStatus(el, label, tone) {
+  if (!el) return;
   el.textContent = label;
   el.style.borderColor = tone;
   el.style.color = tone;
 }
 
+/** Avoids crashes when HTML is older than `app.js` (e.g. cached `index.html` without new metric ids). */
+function setText(el, text) {
+  if (el) el.textContent = text;
+}
+
 async function fetchJson(url) {
-  const res = await fetch(url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`GET ${url} — ${msg}`);
+  }
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    throw new Error(`GET ${url} → HTTP ${res.status}`);
   }
   return res.json();
 }
@@ -80,10 +96,12 @@ function renderSummary(insights) {
     mixed: "Mixed signals",
     none: "none",
   };
-  ui.metricTotal.textContent = summary.total;
-  ui.metricConfidence.textContent = Number(summary.avg_confidence).toFixed(2);
-  ui.metricHighRisk.textContent = summary.high_risk;
-  ui.metricTopIssue.textContent = issueLabels[summary.top_issue] || summary.top_issue;
+  const active = summary.active_issues ?? summary.total ?? 0;
+  setText(ui.metricActiveIssues, String(active));
+  setText(ui.metricSnapshots, String(summary.snapshot_count ?? 0));
+  setText(ui.metricConfidence, Number(summary.avg_confidence).toFixed(2));
+  setText(ui.metricHighRisk, String(summary.high_risk));
+  setText(ui.metricTopIssue, issueLabels[summary.top_issue] || summary.top_issue);
 
   if (summary.health === "degraded") {
     setStatus(ui.healthStatus, "degraded", "#f85149");
@@ -311,8 +329,18 @@ function renderFlameProfiles(cpuProfile, gpuProfile) {
   enableFlameInteractions(ui.flameGpu);
 }
 
+function dashMetricsWhileOffline() {
+  const dash = "—";
+  setText(ui.metricActiveIssues, dash);
+  setText(ui.metricSnapshots, dash);
+  setText(ui.metricConfidence, dash);
+  setText(ui.metricHighRisk, dash);
+  setText(ui.metricTopIssue, dash);
+}
+
 async function refresh() {
   const baseUrl = ui.apiUrl.value.trim().replace(/\/$/, "");
+  const stamp = new Date().toLocaleTimeString();
   setStatus(ui.apiStatus, "fetching", "#58a6ff");
   try {
     const [healthRes, insights, cpuProfile, gpuProfile] = await Promise.all([
@@ -342,13 +370,24 @@ async function refresh() {
     renderSummary(insights);
     renderInsights(insights);
     renderFlameProfiles(cpuProfile, gpuProfile);
-    ui.lastRefresh.textContent = new Date().toLocaleTimeString();
+    ui.lastRefresh.textContent = stamp;
   } catch (err) {
     setStatus(ui.apiStatus, "offline", "#f85149");
     setStatus(ui.healthStatus, "unknown", "#9ca6b2");
-    ui.latestInsight.textContent = `Failed to fetch: ${err.message}`;
+    ui.lastRefresh.textContent = `${stamp} · failed`;
+    dashMetricsWhileOffline();
+    ui.insightList.innerHTML =
+      '<p class="muted">No data — API request did not complete.</p>';
+    const detail = err instanceof Error ? err.message : String(err);
+    ui.latestInsight.innerHTML = `
+<p><strong>Could not load from the API</strong></p>
+<p class="muted" style="word-break:break-all">${escapeHtml(detail)}</p>
+<p class="muted">Typical fixes: start the API (<code>cargo run -p kw-api</code> or <code>make dev</code>), keep the API field as <code>http://localhost:3000</code> while the dashboard is on another port (e.g. 8080), and confirm <code>curl ${escapeHtml(baseUrl)}/health</code> returns OK.</p>
+`;
     ui.flameCpu.textContent = "Unavailable (API offline).";
     ui.flameGpu.textContent = "Unavailable (API offline).";
+    ui.flameCpuMeta.textContent = "samples: —";
+    ui.flameGpuMeta.textContent = "samples: —";
   }
 }
 
