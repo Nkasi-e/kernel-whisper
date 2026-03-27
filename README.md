@@ -5,11 +5,6 @@
 It is built for teams shipping **accelerator-backed workloads** (ML training, inference, HPC-style pipelines) who need a fast answer to: *“Is this slow because of the GPU, or because we’re not feeding it?”*
 
 ### Dashboard
-
-![KernelWhisper dashboard — overview](./assets/dashboard-overview.png)
-
-![KernelWhisper dashboard — flame graphs and insight cards](./assets/dashboard-detail.png)
-
 ![KernelWhisper dashboard — metrics row (active issues vs telemetry snapshots)](./assets/dashboard-metrics.png)
 
 The metrics row distinguishes **active issues** (rule firings such as `cpu_bottleneck`, `io_pressure`, `gpu_underfed`) from **telemetry snapshots** (periodic live summaries when no strong rule matches). Average confidence and “high risk” apply to active issues only. If the UI shows **API offline**, confirm `kw-api` is running and the dashboard’s API field matches it (default `http://localhost:3000` while the static UI is usually on port **8080**).
