@@ -5,10 +5,9 @@
 It is built for teams shipping **accelerator-backed workloads** (ML training, inference, HPC-style pipelines) who need a fast answer to: *“Is this slow because of the GPU, or because we’re not feeding it?”*
 
 ### Dashboard
+![KernelWhisper dashboard — metrics row (active issues vs telemetry snapshots)](./assets/dashboard-metrics.png)
 
-![KernelWhisper dashboard — metrics, flame-style panels, and insights](./assets/dashboard-overview.png)
-
-![KernelWhisper dashboard — detail view](./assets/dashboard-detail.png)
+The metrics row distinguishes **active issues** (rule firings such as `cpu_bottleneck`, `io_pressure`, `gpu_underfed`) from **telemetry snapshots** (periodic live summaries when no strong rule matches). Average confidence and “high risk” apply to active issues only. If the UI shows **API offline**, confirm `kw-api` is running and the dashboard’s API field matches it (default `http://localhost:3000` while the static UI is usually on port **8080**).
 
 ---
 
@@ -33,8 +32,8 @@ It is built for teams shipping **accelerator-backed workloads** (ML training, in
 
 ## What you get (product surfaces)
 
-1. **Web dashboard** — Flame-style CPU/GPU panels, insight cards, metrics, and an in-app **“How to read this”** guide (from `/v1/playbook`).  
-2. **Insights** — Rule-based detections (e.g. CPU-heavy + low GPU, I/O pressure, GPU underfed) with **confidence**, **data summary**, **impact**, and **numbered suggestions**.  
+1. **Web dashboard** — Flame-style CPU/GPU panels, insight cards, a **metrics** row (**active issues** vs **telemetry snapshots**), and an in-app **“How to read this”** guide (from `/v1/playbook`).  
+2. **Insights** — Rule-based detections (e.g. CPU-heavy + low GPU, I/O pressure, GPU underfed) plus optional **`telemetry_snapshot`** rows when rules do not fire; each includes **confidence**, **data summary**, **impact**, and **numbered suggestions**.  
 3. **API** — `GET /health`, `/v1/insights`, `/v1/profile/cpu`, `/v1/profile/gpu`, `/v1/playbook`.  
 4. **CLI** — Same tracer + engine as the API, but prints **pretty-printed insight JSON to stdout** only (no HTTP, no stored history, no flame/playbook). See [CLI](#cli).
 
@@ -130,7 +129,7 @@ curl http://localhost:3000/v1/profile/cpu
 curl http://localhost:3000/v1/playbook
 ```
 
-**Insight issues** today include `cpu_bottleneck`, `io_pressure`, and `gpu_underfed`. Each item includes `data_summary`, `impact_summary`, `suggestions`, and `confidence`.
+**Insight issues** include `cpu_bottleneck`, `io_pressure`, `gpu_underfed`, and informational **`telemetry_snapshot`** (rolling telemetry when no bottleneck rule matches in the window). Each item includes `data_summary`, `impact_summary`, `suggestions`, and `confidence`.
 
 ---
 

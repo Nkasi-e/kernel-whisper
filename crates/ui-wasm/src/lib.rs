@@ -95,24 +95,43 @@ fn section_block(title: &str, body: &str, class: &str) -> String {
     )
 }
 
+/// Summary JSON for the dashboard metrics row.
+///
+/// - `active_issues`: count of rule firings (`cpu_bottleneck`, `io_pressure`, `gpu_underfed`, …)
+///   — excludes `telemetry_snapshot`.
+/// - `snapshot_count`: informational `telemetry_snapshot` rows in the same payload (liveness).
+/// - `total`: same as `active_issues` (kept for older callers).
 #[wasm_bindgen]
 pub fn summarize_insights(json_payload: &str) -> Result<String, JsValue> {
     let insights: Vec<InsightView> =
         serde_json::from_str(json_payload).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     const SNAPSHOT_ISSUE: &str = "telemetry_snapshot";
-    // Treat telemetry snapshots as "info", not as hard detections for the summary.
-    let hard_insights: Vec<&InsightView> =
-        insights.iter().filter(|i| i.issue.as_str() != SNAPSHOT_ISSUE).collect();
-    let total = hard_insights.len();
-    if total == 0 {
-        return Ok(
-            r#"{"total":0,"avg_confidence":0.0,"high_risk":0,"top_issue":"none","health":"stable"}"#
-                .to_string(),
-        );
+    let snapshot_count = insights
+        .iter()
+        .filter(|i| i.issue.as_str() == SNAPSHOT_ISSUE)
+        .count();
+
+    let hard_insights: Vec<&InsightView> = insights
+        .iter()
+        .filter(|i| i.issue.as_str() != SNAPSHOT_ISSUE)
+        .collect();
+    let active_issues = hard_insights.len();
+
+    if active_issues == 0 {
+        let summary = serde_json::json!({
+            "active_issues": 0,
+            "snapshot_count": snapshot_count,
+            "total": 0,
+            "avg_confidence": 0.0,
+            "high_risk": 0,
+            "top_issue": "none",
+            "health": "stable"
+        });
+        return Ok(summary.to_string());
     }
 
-    let avg_confidence = hard_insights.iter().map(|i| i.confidence).sum::<f32>() / total as f32;
+    let avg_confidence = hard_insights.iter().map(|i| i.confidence).sum::<f32>() / active_issues as f32;
     let high_risk = hard_insights.iter().filter(|i| i.confidence >= 0.7).count();
 
     let cpu_bottleneck = hard_insights
@@ -129,11 +148,12 @@ pub fn summarize_insights(json_payload: &str) -> Result<String, JsValue> {
         .count();
 
     let top_issue = top_issue_from_counts(cpu_bottleneck, io_pressure, gpu_underfed);
-
     let health = health_from_avg_confidence(avg_confidence);
 
     let summary = serde_json::json!({
-        "total": total,
+        "active_issues": active_issues,
+        "snapshot_count": snapshot_count,
+        "total": active_issues,
         "avg_confidence": avg_confidence,
         "high_risk": high_risk,
         "top_issue": top_issue,
@@ -198,4 +218,34 @@ fn escape_html(input: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summarize_splits_active_and_snapshots() {
+        let payload = r#"[
+            {"issue":"telemetry_snapshot","confidence":0.2,"message":"m","data_summary":"","impact_summary":""},
+            {"issue":"cpu_bottleneck","confidence":0.8,"message":"c","data_summary":"","impact_summary":""}
+        ]"#;
+        let s: serde_json::Value =
+            serde_json::from_str(&summarize_insights(payload).unwrap()).unwrap();
+        assert_eq!(s["active_issues"], 1);
+        assert_eq!(s["snapshot_count"], 1);
+        assert_eq!(s["total"], 1);
+    }
+
+    #[test]
+    fn summarize_only_snapshots() {
+        let payload = r#"[
+            {"issue":"telemetry_snapshot","confidence":0.2,"message":"m","data_summary":"","impact_summary":""}
+        ]"#;
+        let s: serde_json::Value =
+            serde_json::from_str(&summarize_insights(payload).unwrap()).unwrap();
+        assert_eq!(s["active_issues"], 0);
+        assert_eq!(s["snapshot_count"], 1);
+        assert_eq!(s["health"], "stable");
+    }
 }

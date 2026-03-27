@@ -50,19 +50,28 @@
 
         <section class="metrics-grid">
           <article class="metric-card">
-            <h3>Total Insights</h3>
-            <p id="metric-total" class="metric-value">0</p>
+            <h3>Active issues</h3>
+            <p class="metric-hint">Rule firings in this batch</p>
+            <p id="metric-active-issues" class="metric-value">0</p>
           </article>
           <article class="metric-card">
-            <h3>Average Confidence</h3>
+            <h3>Telemetry snapshots</h3>
+            <p class="metric-hint">Live summaries (not alerts)</p>
+            <p id="metric-snapshots" class="metric-value">0</p>
+          </article>
+          <article class="metric-card">
+            <h3>Avg confidence</h3>
+            <p class="metric-hint">Active issues only</p>
             <p id="metric-confidence" class="metric-value">0.00</p>
           </article>
           <article class="metric-card">
-            <h3>High Risk Signals</h3>
+            <h3>High risk signals</h3>
+            <p class="metric-hint">Confidence ≥ 0.7</p>
             <p id="metric-high-risk" class="metric-value">0</p>
           </article>
           <article class="metric-card">
-            <h3>Dominant Issue</h3>
+            <h3>Dominant issue</h3>
+            <p class="metric-hint">Among active issues</p>
             <p id="metric-top-issue" class="metric-value">none</p>
           </article>
         </section>

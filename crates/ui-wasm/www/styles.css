@@ -97,7 +97,7 @@ button {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
 }
 
@@ -109,9 +109,17 @@ button {
 }
 
 .metric-card h3 {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   font-size: 14px;
   color: var(--muted);
+}
+
+.metric-hint {
+  margin: 0 0 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--muted);
+  opacity: 0.85;
 }
 
 .metric-value {
